@@ -87,12 +87,13 @@ def setup(metrics: str = typer.Option(None, "--metrics"),
     config = {
         "serviceAccountKeyPath": sa_key_path,
         "table": table_id,
-        "metrics": "" if not metrics else metrics.split(","),
-        "dimensions": "" if not dimensions else dimensions.split(","),
+        "metrics": metrics.split(",") if metrics else "",
+        "dimensions": dimensions.split(",") if dimensions else "",
         "samplingLevel": sampling_level.value,
         "startDate": f"{start_date:%Y-%m-%d}",
         "endDate": f"{end_date:%Y-%m-%d}",
     }
+
 
     if preset is not Preset.NONE:
         config["metrics"] = Preset.metrics(preset)
@@ -226,10 +227,13 @@ def migrate(output_format: OutputFormat = typer.Option(OutputFormat.JSON, "--for
 def __migrate_date_ranges(start_date, end_date):
     start_date = datetime.strptime(start_date, '%Y-%m-%d')
     end_date = datetime.strptime(end_date, '%Y-%m-%d')
-    date_ranges = [{"startDate": f"{start_date + timedelta(days=d):%Y-%m-%d}",
-                    "endDate": f"{start_date + timedelta(days=d):%Y-%m-%d}"} for d in
-                   range(((end_date.date() - start_date.date()).days + 1))]
-    return date_ranges
+    return [
+        {
+            "startDate": f"{start_date + timedelta(days=d):%Y-%m-%d}",
+            "endDate": f"{start_date + timedelta(days=d):%Y-%m-%d}",
+        }
+        for d in range(((end_date.date() - start_date.date()).days + 1))
+    ]
 
 
 def __migrate_extract(credentials, table_id, date_ranges):
@@ -314,7 +318,7 @@ def __migrate_transform_umami(rows,  website_id, hostname):
             page_views, sessions = map(int, row["metrics"][0]["values"])
             sessions = max(sessions, 1)  # in case it's zero
             if page_views == sessions:  # One page view for each session
-                for i in range(sessions):
+                for _ in range(sessions):
                     s = Session(session_uuid=uuid.uuid4(), session_id=session_id, website_id=website_id, created_at=timestamp, hostname=hostname,
                                 browser=row["dimensions"][1], os=row["dimensions"][2], device=row["dimensions"][3], screen=row["dimensions"][4],
                                 language=language)
@@ -324,18 +328,18 @@ def __migrate_transform_umami(rows,  website_id, hostname):
                     page_view_id += 1
 
             elif page_views % sessions == 0:  # Split equally
-                for i in range(sessions):
+                for _ in range(sessions):
                     s = Session(session_uuid=uuid.uuid4(), session_id=session_id, website_id=website_id, created_at=timestamp, hostname=hostname,
                                 browser=row["dimensions"][1], os=row["dimensions"][2], device=row["dimensions"][3], screen=row["dimensions"][4],
                                 language=language)
                     sql_inserts.append(s.sql())
-                    for j in range(page_views // sessions):
+                    for _ in range(page_views // sessions):
                         p = PageView(id=page_view_id, website_id=website_id, session_id=session_id, created_at=timestamp, url=row["dimensions"][0], referral_path=referrer)
                         sql_inserts.append(p.sql())
                         page_view_id += 1
                     session_id += 1
             else:  # One page view for each, rest for the last session
-                for i in range(sessions):
+                for _ in range(sessions):
                     s = Session(session_uuid=uuid.uuid4(), session_id=session_id, website_id=website_id, created_at=timestamp, hostname=hostname,
                                 browser=row["dimensions"][1], os=row["dimensions"][2], device=row["dimensions"][3], screen=row["dimensions"][4],
                                 language=language)
@@ -344,7 +348,7 @@ def __migrate_transform_umami(rows,  website_id, hostname):
                     session_id += 1
                     page_view_id += 1
                 last_session_id = session_id - 1
-                for i in range(page_views - sessions):
+                for _ in range(page_views - sessions):
                     p = PageView(id=page_view_id, website_id=website_id, session_id=last_session_id, created_at=timestamp, url=row["dimensions"][0], referral_path=referrer)
                     page_view_id += 1
                     sql_inserts.append(p.sql())
@@ -370,7 +374,7 @@ class CSVRow(NamedTuple):
 
     @staticmethod
     def header():
-        return f"path,browser,os,device,screen,language,country,referral_path,count,date"
+        return "path,browser,os,device,screen,language,country,referral_path,count,date"
 
     def csv(self):
         return f"{self.path},{self.browser},{self.os},{self.device},{self.screen},{self.language},{self.country},{self.referral_path},{self.count},{self.date}"
